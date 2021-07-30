@@ -2,6 +2,8 @@ import pandas as pd
 import re
 import numpy as np
 
+
+
 df = pd.read_csv("./Dataset/datas/teapro.csv", encoding='utf-8')
 df = df.dropna(subset=['rateContent'])
 

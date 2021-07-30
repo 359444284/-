@@ -3,10 +3,8 @@ import spacy_pkuseg as pkuseg
 import pandas as pd
 import numpy as np
 import torch
+import bz2
 from tqdm import tqdm
-from collections import defaultdict
-from torchtext import data as torchdata
-from torchtext.vocab import Vectors as torchVectors
 from sklearn.feature_extraction.text import TfidfVectorizer
 from torch.utils.data import DataLoader, Dataset
 
@@ -26,7 +24,7 @@ class hand_DataSet(Dataset):
         if self.with_label:
             return {
                 'input_ids': torch.LongTensor(input_ids),
-                'targets': torch.tensor(self.targets[item], dtype=torch.float)
+                'targets': torch.tensor(self.targets[item], dtype=torch.long)
             }
         else:
             return {
@@ -112,6 +110,7 @@ class hand_tokenizer:
     def load_pretrained_vectors(self, word2idx, fname):
 
         print("Loading pretrained vectors...")
+
         fin = open(fname, 'r', encoding='utf-8', newline='\n', errors='ignore')
         n, d = map(int, fin.readline().split())
 
@@ -132,7 +131,7 @@ class hand_tokenizer:
 
         return embeddings
 
-    def create_data_loader(self, df, with_label, max_len, batch_size):
+    def create_data_loader(self, df, with_label, max_len, batch_size, sampler=None):
         ds = hand_DataSet(
             df,
             with_label,
@@ -142,7 +141,68 @@ class hand_tokenizer:
         return DataLoader(
             ds,
             batch_size=batch_size,
-            num_workers=4
+            num_workers=4,
+            sampler=sampler
         )
+
+
+class GPReviewDataset(Dataset):
+    def __init__(self, dataframe, with_label, tokenizer, max_len):
+        self.reviews = dataframe.text.to_numpy()
+        self.with_label = with_label
+        if with_label:
+            self.targets = dataframe.labels.to_numpy()
+        self.tokenizer = tokenizer
+        self.max_len = max_len
+
+    def __len__(self):
+        return len(self.reviews)
+
+    def __getitem__(self, item):
+        review = str(self.reviews[item])
+        encoding = self.tokenizer.encode_plus(
+            review,
+            add_special_tokens=True,
+            max_length=self.max_len,
+            return_token_type_ids=False,
+            padding='max_length',
+            truncation=True,
+            return_attention_mask=True,
+            return_tensors='pt',
+        )
+        if len(encoding['input_ids'].flatten()) == 151:
+            print(review)
+        if self.with_label:
+            return {
+                'input_ids': encoding['input_ids'].flatten(),
+                'attention_mask': encoding['attention_mask'].flatten(),
+                'targets': torch.tensor(self.targets[item], dtype=torch.long)
+            }
+        else:
+            return {
+                'input_ids': encoding['input_ids'].flatten(),
+                'attention_mask': encoding['attention_mask'].flatten(),
+            }
+
+
+def bert_data_loader(df, with_label, tokenizer, max_len, batch_size, sampler=None):
+    ds = GPReviewDataset(
+        df,
+        with_label,
+        tokenizer=tokenizer,
+        max_len=max_len
+    )
+
+    return DataLoader(
+        ds,
+        batch_size=batch_size,
+        num_workers=4,
+        sampler=sampler
+    )
+
+
+
+
+
 
 
