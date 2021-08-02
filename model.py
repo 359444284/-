@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
+from torch.autograd import Variable
+from torch.nn.utils.rnn import pack_padded_sequence
 from transformers import BertModel
 
 class TextCNN(nn.Module):
@@ -67,8 +69,8 @@ class LSTM(nn.Module):
                  freeze_embedding=False,
                  vocab_size=None,
                  embedding_dim=300,
-                 hidden_dim=100,
-                 layer_dim=1,
+                 hidden_dim=128,
+                 layer_dim=3,
                  num_classes=2):
         super(LSTM, self).__init__()
 
@@ -87,19 +89,118 @@ class LSTM(nn.Module):
         self.layer_dim = layer_dim
         self.lstm = nn.LSTM(embedding_dim, hidden_dim, layer_dim, batch_first=True)
 
-        # self.drop = nn.Dropout(p=0.2)
         self.fc = nn.Linear(hidden_dim, num_classes)
 
-    def forward(self, input_ids):
+    def forward(self, input_ids, input_lens):
 
         embedding_x = self.embedding(input_ids).float()
 
-        r_out, (h_n, h_c) = self.lstm(embedding_x, None)
+        pack_input = pack_padded_sequence(input=embedding_x, lengths=input_lens, batch_first=True)
 
-        # output = self.fc(r_out[:, -1, :])
-        output = self.fc(h_n[-1])
+        r_out, (h_n, h_c) = self.lstm(pack_input, None)
+
+        output = self.fc(h_n[-1, :, :])
 
         return output
+
+
+class Bi_LSTM(nn.Module):
+    def __init__(self,
+                 pretrained_embedding=None,
+                 freeze_embedding=False,
+                 vocab_size=None,
+                 embedding_dim=300,
+                 hidden_dim=128,
+                 layer_dim=3,
+                 num_classes=2):
+        super(Bi_LSTM, self).__init__()
+
+        if pretrained_embedding is not None:
+            self.vocab_size, self.embed_dim = pretrained_embedding.shape
+            self.embedding = nn.Embedding.from_pretrained(pretrained_embedding,
+                                                          freeze=freeze_embedding)
+        else:
+            self.embed_dim = embedding_dim
+            self.embedding = nn.Embedding(num_embeddings=vocab_size,
+                                          embedding_dim=self.embed_dim,
+                                          padding_idx=-1,
+                                          max_norm=5.0)
+
+        self.hidden_dim = hidden_dim
+        self.layer_dim = layer_dim
+        self.lstm = nn.LSTM(embedding_dim, hidden_dim, layer_dim, batch_first=True, bidirectional=True,
+                            bias=True, dropout=0.5)
+
+        # self.drop = nn.Dropout(p=0.2)
+        # self.fc = nn.Linear(hidden_dim*2, num_classes)
+        # self.fc = nn.Linear(hidden_dim * 2, num_classes)
+        self.fc = nn.Sequential(
+            nn.Linear(hidden_dim*2, num_classes)
+        )
+
+    def forward(self, input_ids, input_lens):
+
+        embedding_x = self.embedding(input_ids).float()
+
+        pack_input = pack_padded_sequence(input=embedding_x, lengths=input_lens, batch_first=True)
+
+        r_out, (h_n, h_c) = self.lstm(pack_input, None)
+
+        output = self.fc(torch.cat((h_n[-1, :, :], h_n[-2, :, :]), 1))
+        return output
+
+class RCNN(nn.Module):
+    def __init__(self,
+                 pretrained_embedding=None,
+                 freeze_embedding=False,
+                 vocab_size=None,
+                 embedding_dim=300,
+                 hidden_dim=128,
+                 layer_dim=3,
+                 num_classes=2):
+        super(RCNN, self).__init__()
+
+        if pretrained_embedding is not None:
+            self.vocab_size, self.embed_dim = pretrained_embedding.shape
+            self.embedding = nn.Embedding.from_pretrained(pretrained_embedding,
+                                                          freeze=freeze_embedding)
+        else:
+            self.embed_dim = embedding_dim
+            self.embedding = nn.Embedding(num_embeddings=vocab_size,
+                                          embedding_dim=self.embed_dim,
+                                          padding_idx=-1,
+                                          max_norm=5.0)
+
+        self.hidden_dim = hidden_dim
+        self.layer_dim = layer_dim
+        self.lstm = nn.LSTM(embedding_dim, hidden_dim, layer_dim, batch_first=True, bidirectional=True,
+                            bias=True, dropout=0.5)
+
+        # self.drop = nn.Dropout(p=0.2)
+        self.fc = nn.Linear(hidden_dim * 2 + embedding_dim, num_classes)
+
+
+    def forward(self, input_ids, input_lens):
+
+        embedding_x = self.embedding(input_ids).float()
+
+        pack_input = embedding_x[:, 0:input_lens[0], :]
+
+        r_out, (h_n, h_c) = self.lstm(pack_input, None)
+
+        left_placehoder = Variable(torch.zeros(1, 1, self.hidden_dim))
+        left_lstm = torch.cat((left_placehoder, r_out[:, 0:-1, 0:int(self.hidden_dim)]), dim=1)
+
+        right_placehoder = Variable(torch.zeros(1, 1, self.hidden_dim))
+        right_lstm = torch.cat((r_out[:, 1:, int(self.hidden_dim):], right_placehoder), dim=1)
+
+        # 前 + embedding + 后
+        lstm_cat = torch.cat((left_lstm, pack_input, right_lstm), 2)
+        y1 = torch.tanh(lstm_cat.permute(0, 2, 1))
+        y2 = F.max_pool1d(y1, y1.size()[2])
+        y3 = self.fc(torch.squeeze(y2, dim=2))
+
+        return y3
 
 
 class My_BertModel(nn.Module):

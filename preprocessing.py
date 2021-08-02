@@ -42,6 +42,7 @@ df['rateContent'] = df['rateContent'].apply(clean_data)
 df['rateContent'].replace('', np.nan, inplace=True)
 cleaned_df = df.dropna(subset=['rateContent'])
 cleaned_df = cleaned_df.rename(columns={'rateContent': 'text'})
+cleaned_df = cleaned_df.replace(11.0, 1.0)
 
 cleaned_df.to_csv("./Dataset/datas/cleaned_data.csv", encoding='utf-8', index=False)
 

@@ -1,16 +1,13 @@
 import pandas as pd
 import numpy as np
 import seaborn as sns
-import matplotlib.pyplot  as plt
+import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import random
 from sklearn.model_selection import train_test_split
 from torch.optim import lr_scheduler
 from torch.utils.data import WeightedRandomSampler
-import sys
-
-sys.path = sys.path[1:] + sys.path[:1]
 from transformers import AdamW, BertTokenizer
 
 import tokenizers_util
@@ -40,12 +37,12 @@ if __name__ == '__main__':
 
     data = pd.read_csv("./Dataset/datas/cleaned_data.csv", encoding='utf-8')
     # task1
-    # data['labels'] = data[data.columns[4:10]].values.tolist()
-    # data = data['text', 'labels']
-    # task2
-    data = data.rename(columns={'sentiment': 'labels'})
+    data['labels'] = data[data.columns[4:10]].values.tolist()
     data = data[['text', 'labels']]
-    print(data['labels'].value_counts())
+    # task2
+    # data = data.rename(columns={'sentiment': 'labels'})
+    # data = data[['text', 'labels']]
+    # print(data['labels'].value_counts())
 
     # 查看句子长度分布
     # field_length = data.text.astype(str).map(len)
@@ -55,8 +52,10 @@ if __name__ == '__main__':
     # plt.show()
 
     # 中文分词
-    # tokenizer = tokenizers_util.hand_tokenizer()
-    # data['text'] = tokenizer.cut(data.text)
+    tokenizer = tokenizers_util.hand_tokenizer()
+    data['text'] = tokenizer.cut(data.text)
+    data['text'].replace('', np.nan, inplace=True)
+    data = data.dropna(subset=['text'])
 
     df_train, df_test = train_test_split(
         data,
@@ -65,78 +64,103 @@ if __name__ == '__main__':
     )
     df_val, df_test = train_test_split(
         df_test,
-        test_size=0.5,
+        test_size=0.1,
         random_state=RANDOM_SEED
     )
 
-    # word2idx = tokenizer.build_vocab(df_train.text, 10000)
+    word2idx = tokenizer.build_vocab(df_train.text, 10000)
 
-    # embeddings = tokenizer.load_pretrained_vectors(word2idx, 'Dataset/pre_train_vec/sgns.wiki.bigram-char')
-    # embeddings = torch.tensor(embeddings)
-
-    # df_train['text'] = tokenizer.encoder(df_train.text, word2idx, 125)
-    # df_val['text'] = tokenizer.encoder(df_val.text, word2idx, 125)
-    # df_test['text'] = tokenizer.encoder(df_test.text, word2idx, 125)
+    embeddings = tokenizer.load_pretrained_vectors(word2idx, 'Dataset/pre_train_vec/sgns.wiki.bigram-char')
+    embeddings = torch.tensor(embeddings)
 
     # 均衡训练集
-    class_counts = df_train['labels'].value_counts().values  # dataset has 10 class-1 samples, 1 class-2 samples, etc.
-    num_samples = len(df_train.labels)
-    labels = df_train.labels.tolist()
-    class_weights = [num_samples / class_counts[i] for i in range(len(class_counts))]
-    weights = [class_weights[int(labels[i])] for i in range(num_samples)]
-    sampler = WeightedRandomSampler(torch.DoubleTensor(weights), int(num_samples))
+    # class_counts = df_train['labels'].value_counts().values  # dataset has 10 class-1 samples, 1 class-2 samples, etc.
+    # num_samples = len(df_train.labels)
+    # labels = df_train.labels.tolist()
+    # class_weights = [num_samples / class_counts[i] for i in range(len(class_counts))]
+    # weights = [class_weights[int(labels[i])] for i in range(num_samples)]
+    # sampler = WeightedRandomSampler(torch.DoubleTensor(weights), int(num_samples))
 
-    # train_data_loader = tokenizer.create_data_loader(df_train, True, 125, 64, sampler=sampler)
-    # val_data_loader = tokenizer.create_data_loader(df_val, True, 125, 64)
-    # test_data_loader = tokenizer.create_data_loader(df_test, True, 125, 64)
+    # train_data_loader = tokenizer.create_data_loader(df_train, word2idx, True, 125, 64)
+    # train_data_loader = tokenizer.create_data_loader(df_train, word2idx, True, 125, 64, sampler=sampler)
+    # val_data_loader = tokenizer.create_data_loader(df_val, word2idx, True, 125, 64)
+    # test_data_loader = tokenizer.create_data_loader(df_test, word2idx, True, 125, 64)
 
-    # label_nums = [0, 0]  # 二分类
-    # for batch in train_data_loader:
+    train_data_loader = tokenizer.create_data_loader(df_train, word2idx, True, 125, 1)
+    # train_data_loader = tokenizer.create_data_loader(df_train, word2idx, True, 125, 1, sampler=sampler)
+    val_data_loader = tokenizer.create_data_loader(df_val, word2idx, True, 125, 1)
+    test_data_loader = tokenizer.create_data_loader(df_test, word2idx, True, 125, 1)
+
+    # label_nums = [0, 0, 0, 0, 0, 0]  # 二分类
+    # for num, batch in enumerate(train_data_loader):
     #     input_ids = batch["input_ids"]
     #     targets = batch["targets"]
-    #     for target_i in targets:
-    #         lable_id = target_i.item()
-    #         label_nums[lable_id] += 1
+    #     for target_x in targets:
+    #         for target_i in range(len(target_x)):
+    #             lable = target_x[target_i].item()
+    #             label_nums[target_i] += int(lable)
     # print("dddd", label_nums)
-
-    # # TextCNN 预训练，不finetune
-    # model = model.TextCNN(pretrained_embedding=embeddings,
-    #                       freeze_embedding=True
-    #                       )
 
     # TextCNN 预训练，finetune
     # model = model.TextCNN(pretrained_embedding=embeddings,
-    #                       freeze_embedding=False
+    #                       freeze_embedding=True, num_classes=6
     #                       )
 
     # # TextCNN 自训练
-    # model = model.TextCNN(vocab_size=len(word2idx))
+    # model = model.TextCNN(vocab_size=len(word2idx), num_classes=6)
 
-    # LSTM 预训练 - fix
+    # LSTM 预训练
     # model = model.LSTM(pretrained_embedding=embeddings,
-    #                    freeze_embedding=True)
+    #                    freeze_embedding=True,
+    #                    num_classes=6
+    # )
 
-    # optimizer = torch.optim.AdamW(model.parameters(), lr=0.1)
-    # scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
+    # Bi-LSTM 自训练
+    # model = model.Bi_LSTM(vocab_size=len(word2idx), num_classes=6)
 
-    MODEL_NAME = 'hfl/chinese-bert-wwm-ext'
+    # Bi-LSTM 预训练
+    # model = model.Bi_LSTM(pretrained_embedding=embeddings,
+    #                       freeze_embedding=True,
+    #                       num_classes=6
+    #                       )
 
-    bert_tokenizer = BertTokenizer.from_pretrained(MODEL_NAME)
+    # RCNN
+    model = model.RCNN(pretrained_embedding=embeddings,
+                       freeze_embedding=False,
+                       num_classes=6
+                       )
 
-    train_data_loader = tokenizers_util.bert_data_loader(df_train, True, bert_tokenizer, 125, 64, sampler)
-    val_data_loader = tokenizers_util.bert_data_loader(df_val, True, bert_tokenizer, 125, 64)
-
-    model = model.My_BertModel(MODEL_NAME)
-
-    optimizer = AdamW(model.parameters(), lr=0.001)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.0001)
     scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
 
-    model.to(device)
+    # ----- bert
+    # MODEL_NAME = 'hfl/chinese-bert-wwm-ext'
 
-    loss_fn = nn.CrossEntropyLoss()
+    # bert_tokenizer = BertTokenizer.from_pretrained(MODEL_NAME)
+
+    # train_data_loader = tokenizers_util.bert_data_loader(df_train, True, bert_tokenizer, 125, 64, sampler)
+    # val_data_loader = tokenizers_util.bert_data_loader(df_val, True, bert_tokenizer, 125, 64)
+
+    # model = model.My_BertModel(MODEL_NAME)
+
+    # optimizer = AdamW(model.parameters(), lr=0.001)
+    # scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
+    # ----- bert
+
+    model.to(device)
+    # loss_fn = nn.CrossEntropyLoss()
+    loss_fn = nn.BCEWithLogitsLoss()
 
     # train.train_epoch(model, optimizer, scheduler, device, loss_fn, train_data_loader, val_data_loader, 30)
-    train.train_epoch(model, optimizer, scheduler, device, loss_fn, train_data_loader, val_data_loader, 30)
+    train.train_epoch(model,
+                      optimizer,
+                      scheduler,
+                      device,
+                      loss_fn,
+                      train_data_loader,
+                      val_data_loader,
+                      30,
+                      is_lstm=True)
 
     # print("结束完事")
     #
@@ -147,11 +171,13 @@ if __name__ == '__main__':
     # for batch in train_data_loader:
     #     input_ids = batch["input_ids"].to(device)
     #     targets = batch["targets"].to(device)
-    #     attention_mask = batch["attention_mask"].to(device)
+    #     # attention_mask = batch["attention_mask"].to(device)
     #     data = input_ids
     #     label = targets
     #     # forward
-    #     out = model(input_ids=input_ids ,attention_mask=attention_mask)
+    #     out = model(input_ids=input_ids
+    #                 # attention_mask=attention_mask
+    #                 )
     #     loss = loss_fn(out, label)
     #     # backward
     #     optimizer.zero_grad()

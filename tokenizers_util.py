@@ -8,27 +8,35 @@ from tqdm import tqdm
 from sklearn.feature_extraction.text import TfidfVectorizer
 from torch.utils.data import DataLoader, Dataset
 
+
 class hand_DataSet(Dataset):
-    def __init__(self, dataframe, with_label, max_len):
-        self.input_ids = dataframe.text.to_numpy()
+    def __init__(self, dataframe, with_label, max_len, word2idx):
+        input_token = dataframe.text
+        self.input_ids, self.real_lens = hand_tokenizer().encoder(input_token, word2idx, max_len)
+
         self.with_label = with_label
+
         if with_label:
             self.targets = dataframe.labels.to_numpy()
-        self.max_len = max_len
 
     def __len__(self):
         return len(self.input_ids)
 
     def __getitem__(self, item):
         input_ids = self.input_ids[item]
+        real_len = self.real_lens[item]
+
         if self.with_label:
             return {
                 'input_ids': torch.LongTensor(input_ids),
-                'targets': torch.tensor(self.targets[item], dtype=torch.long)
+                # 'targets': torch.tensor(self.targets[item], dtype=torch.long),
+                'targets': torch.tensor(self.targets[item], dtype=torch.float),
+                'real_len': real_len
             }
         else:
             return {
                 'input_ids': torch.LongTensor(input_ids),
+                'real_len': real_len
             }
 
 
@@ -92,20 +100,23 @@ class hand_tokenizer:
 
     def encoder(self, texts, word2idx, max_len):
         input_ids = []
-
+        real_lens = []
         for sent in texts:
 
             tokenized_sent = self.space_tokenize(sent)
             sent_len = len(tokenized_sent)
+
             if sent_len < max_len:
+                real_lens.append(sent_len)
                 tokenized_sent += ['<PAD>'] * (max_len - sent_len)
             else:
+                real_lens.append(max_len)
                 tokenized_sent = tokenized_sent[:max_len]
 
             input_id = [word2idx.get(token, word2idx.get('<UNK>')) for token in tokenized_sent]
             input_ids.append(input_id)
 
-        return input_ids
+        return np.asarray(input_ids), np.asarray(real_lens)
 
     def load_pretrained_vectors(self, word2idx, fname):
 
@@ -131,17 +142,19 @@ class hand_tokenizer:
 
         return embeddings
 
-    def create_data_loader(self, df, with_label, max_len, batch_size, sampler=None):
+
+    def create_data_loader(self, df, word2idx, with_label, max_len, batch_size, sampler=None):
         ds = hand_DataSet(
             df,
             with_label,
-            max_len
+            max_len,
+            word2idx
         )
 
         return DataLoader(
             ds,
             batch_size=batch_size,
-            num_workers=4,
+            num_workers=0,
             sampler=sampler
         )
 

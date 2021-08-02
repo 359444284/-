@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 from sklearn.metrics import f1_score
+from torch.nn.utils.rnn import pad_packed_sequence
+
 
 def train_epoch(
         model,
@@ -12,7 +14,8 @@ def train_epoch(
         loss_fn,
         train_dataloader,
         val_dataloader=None,
-        epochs=10
+        epochs=10,
+        is_lstm=False
 ):
 
     # Tracking best validation accuracy
@@ -31,12 +34,28 @@ def train_epoch(
         for step, batch in enumerate(train_dataloader):
             input_ids = batch["input_ids"].to(device)
             targets = batch["targets"].to(device)
-            attention_mask = batch["attention_mask"].to(device)
+            # attention_mask = batch["attention_mask"].to(device)
 
-            output = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask
-            )
+            if is_lstm:
+                lengths = batch["real_len"]
+                a_lengths, idx = lengths.sort(0, descending=True)
+
+                _, un_idx = torch.sort(idx, dim=0)
+
+                input_ids = input_ids[idx]
+
+                output = model(
+                    input_ids=input_ids,
+                    input_lens=a_lengths
+                )
+
+                output = torch.index_select(output, 0, un_idx)
+
+            else:
+                output = model(
+                    input_ids=input_ids,
+                    # attention_mask=attention_mask
+                )
 
             loss = loss_fn(output, targets)
             total_loss += loss.item()
@@ -51,7 +70,7 @@ def train_epoch(
         # evaluation
 
         if val_dataloader is not None:
-            val_loss, val_accuracy, f1 = evaluate(model, val_dataloader, device, loss_fn)
+            val_loss, val_accuracy, f1 = evaluate(model, val_dataloader, device, loss_fn, is_lstm)
 
             # Track the best accuracy
             if val_accuracy > best_accuracy:
@@ -66,7 +85,8 @@ def train_epoch(
         # print(f"Training complete! Best accuracy: {best_accuracy:.2f}%.")
         print(best_accuracy)
 
-def evaluate(model, val_dataloader, device, loss_fn):
+
+def evaluate(model, val_dataloader, device, loss_fn, is_lstm):
     """After the completion of each training epoch, measure the model's
     performance on our validation set.
     """
@@ -85,26 +105,53 @@ def evaluate(model, val_dataloader, device, loss_fn):
             # Load batch to GPU
             input_ids = batch["input_ids"].to(device)
             targets = batch["targets"].to(device)
-            attention_mask = batch["attention_mask"].to(device)
+            # attention_mask = batch["attention_mask"].to(device)
 
             # Compute logits
 
-            output = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask
-            )
+            if is_lstm:
+                lengths = batch["real_len"]
+                a_lengths, idx = lengths.sort(0, descending=True)
+
+                _, un_idx = torch.sort(idx, dim=0)
+
+                input_ids = input_ids[idx]
+
+                output = model(
+                    input_ids=input_ids,
+                    input_lens=a_lengths
+                )
+
+                output = torch.index_select(output, 0, un_idx)
+
+            else:
+                output = model(
+                    input_ids=input_ids,
+                    # attention_mask=attention_mask
+                )
 
             # Compute loss
             loss = loss_fn(output, targets)
             val_loss.append(loss.item())
 
             # Get the predictions
-            preds = torch.argmax(output, dim=1).flatten()
-            pred_all.extend(preds)
-            lable_all.extend(targets)
+            m = nn.Sigmoid()
+
+            preds = m(output)
+            # preds = torch.argmax(output, dim=1).flatten()
+            # pred_all.extend(preds.cpu().numpy())
+            # lable_all.extend(targets.cpu().numpy())
             # Calculate the accuracy rate
-            accuracy = (preds == targets).cpu().numpy().mean() * 100
-            val_accuracy.append(accuracy)
+            for idx in range(targets.size()[1]):
+                pred = np.asarray(preds[:, idx])
+                target = targets[:, idx].cpu().numpy()
+                pred = [1 if p >= 0.5 else 0 for p in pred]
+                accuracy = (pred == target).mean() * 100
+                val_accuracy.append(accuracy)
+
+                pred_all.extend(pred)
+                lable_all.extend(target)
+
 
 
 
