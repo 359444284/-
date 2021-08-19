@@ -68,17 +68,6 @@ class hand_tokenizer:
     def cut(self, dataframe):
         return dataframe.apply(self.chinese_tokenizer)
 
-    def tfidf_vectorizer(self, text_data):
-        datas = text_data.tolist()
-
-        tfidf_model = TfidfVectorizer( max_features=None,
-        strip_accents='unicode', analyzer='word', token_pattern=r'\w{1,}',
-        ngram_range=(1, 1), use_idf=1, smooth_idf=1, sublinear_tf=1)
-
-        embedding = tfidf_model.fit_transform(datas)
-
-        return embedding
-
     def build_vocab(self, text_data, max_size):
 
         word2idx = {}

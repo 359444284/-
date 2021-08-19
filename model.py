@@ -61,6 +61,41 @@ class TextCNN(nn.Module):
 
         return output
 
+class BaseCNN(nn.Module):
+    def __init__(self,
+                 embedding_dim=300,
+                 num_classes= 2):
+        super(BaseCNN, self).__init__()
+
+        self.convs = nn.Sequential(
+                nn.Conv1d()
+            )
+
+
+    def forward(self, input_ids):
+
+        # [batch_size, sequence_length, embedding_size]
+        embedding_x = self.embedding(input_ids).float()
+
+        # [batch, embedding_size, sequence_length]
+        reshaped_x = embedding_x.permute(0, 2, 1)
+
+        # [batch_size, num_filters[i], L_out]
+        con_x_list = [F.relu_(conv(reshaped_x)) for conv in self.convs]
+
+        # (batch_size, num_filters[i], 1)
+        x_pool_list = [F.max_pool1d(con_x, kernel_size=con_x.shape[2])
+                       for con_x in con_x_list]
+
+        fc_x = torch.cat([x_pool.squeeze(dim=2) for x_pool in x_pool_list],
+                         dim=1)
+
+        fc_x = self.dropout(fc_x)
+
+        output = self.fc(fc_x)
+
+        return output
+
 
 class LSTM(nn.Module):
 

@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import random
+
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
 from torch.optim import lr_scheduler
 from torch.utils.data import WeightedRandomSampler
@@ -57,6 +59,13 @@ if __name__ == '__main__':
     data['text'].replace('', np.nan, inplace=True)
     data = data.dropna(subset=['text'])
 
+    tfidf_model = TfidfVectorizer(max_features=None,
+                                  strip_accents='unicode', analyzer='word', token_pattern=r'\w{1,}',
+                                  ngram_range=(1, 1), use_idf=1, smooth_idf=1, sublinear_tf=1)
+
+    vectorizer = tfidf_model.fit(data.text)
+
+
     df_train, df_test = train_test_split(
         data,
         test_size=0.2,
@@ -68,10 +77,19 @@ if __name__ == '__main__':
         random_state=RANDOM_SEED
     )
 
-    word2idx = tokenizer.build_vocab(df_train.text, 10000)
+    # df_train['text'] = vectorizer.transform(df_train.text).toarray()
+    # df_val['text'] = vectorizer.transform(df_val.text).toarray()
+    # df_test['text'] = vectorizer.transform(df_test.text).toarray()
 
-    embeddings = tokenizer.load_pretrained_vectors(word2idx, 'Dataset/pre_train_vec/sgns.wiki.bigram-char')
-    embeddings = torch.tensor(embeddings)
+    print(df_train)
+    print(np.shape(df_train))
+
+    # word2idx = tokenizer.build_vocab(df_train.text, 10000)
+
+    # embeddings = tokenizer.load_pretrained_vectors(word2idx, 'Dataset/pre_train_vec/sgns.wiki.bigram-char')
+    # embeddings = torch.tensor(embeddings)
+
+
 
     # 均衡训练集
     # class_counts = df_train['labels'].value_counts().values  # dataset has 10 class-1 samples, 1 class-2 samples, etc.
@@ -81,15 +99,15 @@ if __name__ == '__main__':
     # weights = [class_weights[int(labels[i])] for i in range(num_samples)]
     # sampler = WeightedRandomSampler(torch.DoubleTensor(weights), int(num_samples))
 
-    # train_data_loader = tokenizer.create_data_loader(df_train, word2idx, True, 125, 64)
+    train_data_loader = tokenizer.create_data_loader(df_train, word2idx, True, 125, 64)
     # train_data_loader = tokenizer.create_data_loader(df_train, word2idx, True, 125, 64, sampler=sampler)
-    # val_data_loader = tokenizer.create_data_loader(df_val, word2idx, True, 125, 64)
-    # test_data_loader = tokenizer.create_data_loader(df_test, word2idx, True, 125, 64)
+    val_data_loader = tokenizer.create_data_loader(df_val, word2idx, True, 125, 64)
+    test_data_loader = tokenizer.create_data_loader(df_test, word2idx, True, 125, 64)
 
-    train_data_loader = tokenizer.create_data_loader(df_train, word2idx, True, 125, 1)
+    # train_data_loader = tokenizer.create_data_loader(df_train, word2idx, True, 125, 1)
     # train_data_loader = tokenizer.create_data_loader(df_train, word2idx, True, 125, 1, sampler=sampler)
-    val_data_loader = tokenizer.create_data_loader(df_val, word2idx, True, 125, 1)
-    test_data_loader = tokenizer.create_data_loader(df_test, word2idx, True, 125, 1)
+    # val_data_loader = tokenizer.create_data_loader(df_val, word2idx, True, 125, 1)
+    # test_data_loader = tokenizer.create_data_loader(df_test, word2idx, True, 125, 1)
 
     # label_nums = [0, 0, 0, 0, 0, 0]  # 二分类
     # for num, batch in enumerate(train_data_loader):
